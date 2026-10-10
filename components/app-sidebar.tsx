@@ -4,6 +4,7 @@ import { UserButton } from "@clerk/nextjs";
 import { formatDistanceToNowStrict } from "date-fns";
 import { BotIcon, PlusIcon, UsersIcon } from "lucide-react";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import * as React from "react";
 
 import { BotDialog } from "@/components/bot-dialog";
@@ -38,6 +39,7 @@ type AppSidebarProps = {
 
 export function AppSidebar({ chats }: AppSidebarProps) {
 	const [botDialogOpen, setBotDialogOpen] = React.useState(false);
+	const { chatId } = useParams<{ chatId?: string }>();
 
 	return (
 		<Sidebar collapsible="icon">
@@ -74,8 +76,14 @@ export function AppSidebar({ chats }: AppSidebarProps) {
 								<SidebarMenuItem key={chat.id}>
 									<SidebarMenuButton
 										size="lg"
+										isActive={chat.id === chatId}
 										tooltip={chat.name ?? chat.bot.name}
-										render={<Link href={`/chats/${chat.id}`} />}
+										render={
+											<Link
+												href={`/chats/${chat.id}`}
+												aria-current={chat.id === chatId ? "page" : undefined}
+											/>
+										}
 										className="group-data-[collapsible=icon]:p-2!"
 									>
 										<ChatAvatar

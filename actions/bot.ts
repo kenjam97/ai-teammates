@@ -1,7 +1,9 @@
 "use server"
 
 import { auth } from "@clerk/nextjs/server"
-import { refresh } from "next/cache"
+import { refresh, revalidatePath } from "next/cache"
+import { redirect } from "next/navigation"
+import { and, eq, inArray, sql } from "drizzle-orm"
 import { z } from "zod"
 
 import { db } from "@/db"
@@ -53,4 +55,78 @@ export async function createBot(input: unknown): Promise<CreateBotResult> {
   refresh()
 
   return { ok: true, bot, chat }
+}
+
+type UpdateBotResult = { ok: true; bot: Bot } | { ok: false; error: string }
+
+export async function updateBot(
+  botId: unknown,
+  input: unknown
+): Promise<UpdateBotResult> {
+  const { isAuthenticated, userId } = await auth()
+  if (!isAuthenticated) return { ok: false, error: "You need to sign in." }
+
+  const parsedId = z.string().min(1).safeParse(botId)
+  if (!parsedId.success) return { ok: false, error: "This bot doesn't exist." }
+
+  // Server Actions are public endpoints, so validate again on the server.
+  const parsed = insertBotSchema.safeParse(input)
+  if (!parsed.success) {
+    return { ok: false, error: z.prettifyError(parsed.error) }
+  }
+
+  // Scope the update to the signed-in user so nobody can edit another
+  // user's bot by guessing its ID.
+  const [bot] = await db
+    .update(bots)
+    .set({
+      ...parsed.data,
+      instructions: parsed.data.instructions || null,
+    })
+    .where(and(eq(bots.id, parsedId.data), eq(bots.userId, userId)))
+    .returning()
+
+  if (!bot) return { ok: false, error: "This bot doesn't exist." }
+
+  refresh()
+
+  return { ok: true, bot }
+}
+
+// Only failures return. On success the action redirects home, because the
+// page the user is on may be the deleted bot's chat.
+type DeleteBotResult = { ok: false; error: string }
+
+export async function deleteBot(botId: unknown): Promise<DeleteBotResult> {
+  const { isAuthenticated, userId } = await auth()
+  if (!isAuthenticated) return { ok: false, error: "You need to sign in." }
+
+  const parsedId = z.string().min(1).safeParse(botId)
+  if (!parsedId.success) return { ok: false, error: "This bot doesn't exist." }
+
+  // Deleting the bot cascades to its memberships, which would leave its direct
+  // chats empty. Delete them in the same transaction.
+  const deleted = await db.transaction(async (tx) => {
+    const [bot] = await tx
+      .delete(bots)
+      .where(and(eq(bots.id, parsedId.data), eq(bots.userId, userId)))
+      .returning({ id: bots.id })
+    if (!bot) return false
+
+    const directChats = tx
+      .select({ id: chats.id })
+      .from(chats)
+      .leftJoin(chatMembers, eq(chatMembers.chatId, chats.id))
+      .where(and(eq(chats.userId, userId), eq(chats.kind, "direct")))
+      .groupBy(chats.id)
+      .having(sql`count(${chatMembers.botId}) = 0`)
+    await tx.delete(chats).where(inArray(chats.id, directChats))
+
+    return true
+  })
+
+  if (!deleted) return { ok: false, error: "This bot doesn't exist." }
+
+  revalidatePath("/", "layout")
+  redirect("/")
 }
