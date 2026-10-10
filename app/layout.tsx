@@ -2,6 +2,8 @@ import { Geist, Geist_Mono } from "next/font/google"
 
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
+import { Toaster } from "@/components/ui/toast"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils";
 
 const geist = Geist({subsets:['latin'],variable:'--font-sans'})
@@ -22,8 +24,14 @@ export default function RootLayout({
       suppressHydrationWarning
       className={cn("antialiased", fontMono.variable, "font-sans", geist.variable)}
     >
-      <body>
-        <ThemeProvider>{children}</ThemeProvider>
+      <body className="relative">
+        <ThemeProvider>
+          <TooltipProvider>
+            <Toaster>
+              <div className="isolate">{children}</div>
+            </Toaster>
+          </TooltipProvider>
+        </ThemeProvider>
       </body>
     </html>
   )
