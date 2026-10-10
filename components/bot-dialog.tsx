@@ -65,12 +65,20 @@ function emptyValues(): BotFormValues {
 }
 
 type BotDialogProps = {
-  // Element that opens the dialog, e.g. a <Button />.
-  trigger: React.ReactElement
+  // Element that opens the dialog, e.g. a <Button />. Omit it to control
+  // the dialog from outside with `open` and `onOpenChange`, e.g. from a menu.
+  trigger?: React.ReactElement
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
-export function BotDialog({ trigger }: BotDialogProps) {
-  const [open, setOpen] = React.useState(false)
+export function BotDialog({
+  trigger,
+  open: openProp,
+  onOpenChange,
+}: BotDialogProps) {
+  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false)
+  const open = openProp ?? uncontrolledOpen
 
   const form = useForm<BotFormValues>({
     resolver: zodResolver(insertBotSchema),
@@ -79,10 +87,14 @@ export function BotDialog({ trigger }: BotDialogProps) {
 
   const avatar = useWatch({ control: form.control, name: "avatar" })
 
-  function handleOpenChange(nextOpen: boolean) {
-    // Start every new bot with a fresh face and a clean form.
-    if (nextOpen) form.reset(emptyValues())
-    setOpen(nextOpen)
+  // Start every new bot with a fresh face and a clean form, however it opened.
+  React.useEffect(() => {
+    if (open) form.reset(emptyValues())
+  }, [open, form])
+
+  function setOpen(nextOpen: boolean) {
+    setUncontrolledOpen(nextOpen)
+    onOpenChange?.(nextOpen)
   }
 
   async function onSubmit(values: BotFormValues) {
@@ -101,8 +113,8 @@ export function BotDialog({ trigger }: BotDialogProps) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger render={trigger} />
+    <Dialog open={open} onOpenChange={setOpen}>
+      {trigger && <DialogTrigger render={trigger} />}
       <DialogContent className="sm:max-w-md">
         <form
           className="flex flex-col gap-4"

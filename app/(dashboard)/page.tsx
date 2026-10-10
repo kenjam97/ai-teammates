@@ -1,4 +1,3 @@
-import { UserButton } from "@clerk/nextjs";
 import { auth } from "@clerk/nextjs/server";
 import { PlusIcon } from "lucide-react";
 
@@ -19,9 +18,6 @@ export default async function Page() {
 
 	return (
 		<div className="flex min-h-svh flex-col">
-			<header className="flex items-center justify-end gap-2 p-4">
-				<UserButton />
-			</header>
 			<Empty>
 				<EmptyHeader>
 					<EmptyMedia>

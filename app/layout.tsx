@@ -32,7 +32,7 @@ export default function RootLayout({
       )}
     >
       <body className="relative">
-        <ClerkProvider appearance={{ theme: shadcn }}>
+        <ClerkProvider appearance={{ theme: shadcn, cssLayerName: "clerk" }}>
           <ThemeProvider>
             <TooltipProvider>
               <Toaster>
