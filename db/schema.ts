@@ -1,37 +1,27 @@
-import { boolean, index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core"
+import { index, pgTable, text, timestamp } from "drizzle-orm/pg-core"
+import { nanoid } from "nanoid"
 
-export const users = pgTable("users", {
-  // Clerk user ID (e.g. "user_2abc...")
-  id: text("id").primaryKey(),
-  email: text("email").notNull().unique(),
-  name: text("name"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-})
-
-export type User = typeof users.$inferSelect
-export type NewUser = typeof users.$inferInsert
-
-export const todos = pgTable(
-  "todos",
+export const bots = pgTable(
+  "bots",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
-    userId: text("user_id")
+    id: text("id").primaryKey().$defaultFn(() => nanoid()),
+    // Clerk user ID (e.g. "user_2abc...")
+    userId: text("user_id").notNull(),
+    name: text("name").notNull(),
+    // Seed for the generated bot face
+    avatar: text("avatar")
       .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    title: text("title").notNull(),
-    completed: boolean("completed").notNull().default(false),
+      .$defaultFn(() => nanoid()),
+    // What the bot is for, in a phrase
+    job: text("job").notNull(),
+    // How it should go about the job
+    instructions: text("instructions"),
+    // Sandbox provider ID, created lazily
+    sandboxId: text("sandbox_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow()
-      .$onUpdate(() => new Date()),
   },
-  (t) => [index("todos_user_id_idx").on(t.userId)]
+  (t) => [index("bots_user_id_idx").on(t.userId)]
 )
 
-export type Todo = typeof todos.$inferSelect
-export type NewTodo = typeof todos.$inferInsert
+export type Bot = typeof bots.$inferSelect
+export type NewBot = typeof bots.$inferInsert
