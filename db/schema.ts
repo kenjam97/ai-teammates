@@ -1,5 +1,7 @@
 import { index, pgTable, text, timestamp } from "drizzle-orm/pg-core"
+import { createInsertSchema } from "drizzle-zod"
 import { nanoid } from "nanoid"
+import { z } from "zod"
 
 export const bots = pgTable(
   "bots",
@@ -25,3 +27,16 @@ export const bots = pgTable(
 
 export type Bot = typeof bots.$inferSelect
 export type NewBot = typeof bots.$inferInsert
+
+// What a user can set when creating a bot. Ownership and server-managed
+// columns are filled in by the server action, never by the client.
+export const insertBotSchema = createInsertSchema(bots, {
+  name: (s) => s.trim().min(1, "Give your bot a name.").max(50),
+  // Required here (unlike the column default) so the face the user picked is
+  // the face that gets saved.
+  avatar: z.string().min(1),
+  job: (s) => s.trim().min(1, "Give your bot a job.").max(100),
+  instructions: (s) => s.trim().max(2000),
+}).omit({ id: true, userId: true, sandboxId: true, createdAt: true })
+
+export type InsertBot = z.infer<typeof insertBotSchema>
