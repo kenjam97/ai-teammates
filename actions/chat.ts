@@ -16,6 +16,8 @@ import {
   insertGroupChatSchema,
   type Chat,
 } from "@/db/schema"
+import { checkAllowance } from "@/lib/allowance"
+import type { BillingError } from "@/lib/billing"
 import type { chatAgent } from "@/trigger/chat"
 
 const startSession = chat.createStartSessionAction<typeof chatAgent>("chat")
@@ -41,6 +43,14 @@ async function authorizeChat(chatId: unknown) {
   return chat.id
 }
 
+// Checked when the session starts and every time its token is refreshed
+// (hourly). The browser checks before sending, so this only throws for a
+// bypassed client, and the agent checks the limits again every turn.
+async function requireChatAllowance() {
+  const blocked = await checkAllowance("chat")
+  if (blocked) throw new Error(blocked.error)
+}
+
 type ChatClientData = Parameters<typeof startSession>[0]["clientData"]
 
 // Creates the chat's session and first run. Idempotent on chat id. The client
@@ -51,12 +61,14 @@ export async function startChatSession(params: {
   clientData?: ChatClientData
 }) {
   const chatId = await authorizeChat(params?.chatId)
+  await requireChatAllowance()
   return startSession({ chatId, clientData: params?.clientData })
 }
 
 // The transport calls this to refresh an expired session token.
 export async function mintChatAccessToken(chatId: string) {
   const id = await authorizeChat(chatId)
+  await requireChatAllowance()
   return triggerAuth.createPublicToken({
     scopes: { read: { sessions: id }, write: { sessions: id } },
     expirationTime: "1h",
@@ -72,12 +84,15 @@ export async function loadTranscript(params: { chatId: string }) {
 type CreateGroupChatResult =
   | { ok: true; chat: Chat }
   | { ok: false; error: string }
+  | BillingError
 
 export async function createGroupChat(
   input: unknown
 ): Promise<CreateGroupChatResult> {
   const { isAuthenticated, userId } = await auth()
   if (!isAuthenticated) return { ok: false, error: "You need to sign in." }
+  const blocked = await checkAllowance("groupChat")
+  if (blocked) return blocked
 
   // Server Actions are public endpoints, so validate again on the server.
   const parsed = insertGroupChatSchema.safeParse(input)
@@ -117,6 +132,7 @@ export async function createGroupChat(
 type UpdateGroupChatResult =
   | { ok: true; chat: Chat }
   | { ok: false; error: string }
+  | BillingError
 
 export async function updateGroupChat(
   chatId: unknown,
@@ -124,6 +140,8 @@ export async function updateGroupChat(
 ): Promise<UpdateGroupChatResult> {
   const { isAuthenticated, userId } = await auth()
   if (!isAuthenticated) return { ok: false, error: "You need to sign in." }
+  const blocked = await checkAllowance("groupChat")
+  if (blocked) return blocked
 
   const parsedId = z.string().min(1).safeParse(chatId)
   if (!parsedId.success) return { ok: false, error: "This chat doesn't exist." }

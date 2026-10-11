@@ -1,6 +1,8 @@
 import { relations } from "drizzle-orm"
 import {
   index,
+  integer,
+  jsonb,
   pgEnum,
   pgTable,
   primaryKey,
@@ -122,3 +124,30 @@ export const chatMembersRelations = relations(chatMembers, ({ one }) => ({
   chat: one(chats, { fields: [chatMembers.chatId], references: [chats.id] }),
   bot: one(bots, { fields: [chatMembers.botId], references: [bots.id] }),
 }))
+
+export const usageKind = pgEnum("usage_kind", ["ai", "sandbox"])
+
+// The usage ledger: one row per metered use, never updated. A billing
+// period's usage is the sum of the rows created since it started, so the
+// allowance resets with the subscription period.
+export const usageEvents = pgTable(
+  "usage_events",
+  {
+    id: text("id").primaryKey().$defaultFn(() => nanoid()),
+    // Clerk user ID (e.g. "user_2abc...")
+    userId: text("user_id").notNull(),
+    kind: usageKind("kind").notNull(),
+    // Tokens for AI, seconds of running time for sandboxes
+    quantity: integer("quantity").notNull(),
+    // What it cost us, in millionths of a US dollar
+    costMicros: integer("cost_micros").notNull(),
+    // Where it came from: the chat, bot and token split, or the sandbox and
+    // its size. For looking into a bill, not for limits.
+    details: jsonb("details").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("usage_events_user_id_created_at_idx").on(t.userId, t.createdAt)]
+)
+
+export type UsageEvent = typeof usageEvents.$inferSelect
+export type NewUsageEvent = typeof usageEvents.$inferInsert

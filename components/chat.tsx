@@ -65,6 +65,7 @@ import {
 import { ChatAvatar } from "@/components/chat-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
+import { useBillingGate } from "@/components/billing-gate";
 import type { Bot } from "@/db/schema";
 import type { chatAgent } from "@/trigger/chat";
 import type { ChatUIMessage } from "@/trigger/chat-tools";
@@ -138,6 +139,7 @@ function ChatView({
 	const [mention, setMention] = useState<Mention | null>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const isGroup = bots.length > 1;
+	const checkBilling = useBillingGate();
 	const { messages, status, sendMessage, stop } = useChat<ChatUIMessage>({
 		id: chatId,
 		messages: initialMessages,
@@ -226,8 +228,9 @@ function ChatView({
 		}
 	}
 
-	function handleSubmit(message: PromptInputMessage) {
+	async function handleSubmit(message: PromptInputMessage) {
 		if (!message.text.trim()) return;
+		if (!(await checkBilling("chat"))) return;
 		// A bot @mentioned in the message answers it, even when its name was
 		// typed out rather than picked from the menu.
 		const mentioned = isGroup

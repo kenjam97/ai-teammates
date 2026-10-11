@@ -6,11 +6,14 @@ import { z } from "zod"
 
 import { db } from "@/db"
 import { bots, chatMembers, chats } from "@/db/schema"
+import { checkAllowance } from "@/lib/allowance"
+import type { BillingError } from "@/lib/billing"
 import { getSandboxDesktopUrl } from "@/lib/daytona"
 
 type GetDesktopUrlResult =
   | { ok: true; url: string }
   | { ok: false; error: string }
+  | BillingError
 
 // Returns a noVNC URL for the desktop of a direct chat's bot. Group chats have
 // no desktop.
@@ -19,6 +22,8 @@ export async function getDesktopUrl(
 ): Promise<GetDesktopUrlResult> {
   const { isAuthenticated, userId } = await auth()
   if (!isAuthenticated) return { ok: false, error: "You need to sign in." }
+  const blocked = await checkAllowance("desktop")
+  if (blocked) return blocked
 
   // Server Actions are public endpoints, so validate on the server.
   const parsed = z.string().min(1).safeParse(input)

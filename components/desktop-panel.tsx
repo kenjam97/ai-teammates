@@ -16,6 +16,8 @@ import {
 } from "@/components/ui/dialog";
 import { ResizableHandle, ResizablePanel } from "@/components/ui/resizable";
 import { Spinner } from "@/components/ui/spinner";
+import { useBillingGate, useBillingToast } from "@/components/billing-gate";
+import { isBillingError } from "@/lib/billing";
 
 type Desktop =
 	| { status: "idle" }
@@ -66,11 +68,14 @@ export function DesktopPanelProvider({
 	const [viewerKey, setViewerKey] = useState(0);
 	const [panelSlot, setPanelSlot] = useState<HTMLElement | null>(null);
 	const [dialogSlot, setDialogSlot] = useState<HTMLElement | null>(null);
+	const showBillingToast = useBillingToast();
+	const checkBilling = useBillingGate();
 
 	async function load() {
 		setDesktop({ status: "loading" });
 		try {
 			const result = await getDesktopUrl(chatId);
+			if (isBillingError(result)) showBillingToast(result);
 			setDesktop(
 				result.ok
 					? { status: "ready", url: result.url }
@@ -84,7 +89,9 @@ export function DesktopPanelProvider({
 		}
 	}
 
-	function toggle() {
+	async function toggle() {
+		// Don't open the panel at all without the plan or sandbox time left.
+		if (!open && !(await checkBilling("desktop"))) return;
 		if (!open && desktop.status === "idle") load();
 		setOpen(!open);
 	}

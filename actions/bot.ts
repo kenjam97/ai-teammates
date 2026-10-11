@@ -8,6 +8,8 @@ import { nanoid } from "nanoid"
 import { z } from "zod"
 
 import { db } from "@/db"
+import { checkAllowance } from "@/lib/allowance"
+import type { BillingError } from "@/lib/billing"
 import { createBotSandbox, deleteBotSandbox } from "@/lib/daytona"
 import {
   bots,
@@ -21,10 +23,14 @@ import {
 type CreateBotResult =
   | { ok: true; bot: Bot; chat: Chat }
   | { ok: false; error: string }
+  | BillingError
 
 export async function createBot(input: unknown): Promise<CreateBotResult> {
   const { isAuthenticated, userId } = await auth()
   if (!isAuthenticated) return { ok: false, error: "You need to sign in." }
+
+  const blocked = await checkAllowance("createBot")
+  if (blocked) return blocked
 
   // Server Actions are public endpoints, so validate again on the server.
   const parsed = insertBotSchema.safeParse(input)
@@ -82,7 +88,10 @@ export async function createBot(input: unknown): Promise<CreateBotResult> {
   return { ok: true, bot, chat }
 }
 
-type UpdateBotResult = { ok: true; bot: Bot } | { ok: false; error: string }
+type UpdateBotResult =
+  | { ok: true; bot: Bot }
+  | { ok: false; error: string }
+  | BillingError
 
 export async function updateBot(
   botId: unknown,
@@ -90,6 +99,8 @@ export async function updateBot(
 ): Promise<UpdateBotResult> {
   const { isAuthenticated, userId } = await auth()
   if (!isAuthenticated) return { ok: false, error: "You need to sign in." }
+  const blocked = await checkAllowance("editBot")
+  if (blocked) return blocked
 
   const parsedId = z.string().min(1).safeParse(botId)
   if (!parsedId.success) return { ok: false, error: "This bot doesn't exist." }

@@ -35,6 +35,8 @@ import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/toast"
+import { useBillingGate, useBillingToast } from "@/components/billing-gate"
+import { isBillingError } from "@/lib/billing"
 
 type BotFormValues = z.input<typeof insertBotSchema>
 
@@ -104,6 +106,8 @@ export function BotDialog({
   })
 
   const avatar = useWatch({ control: form.control, name: "avatar" })
+  const showBillingToast = useBillingToast()
+  const checkBilling = useBillingGate()
 
   // Read the latest bot without re-running the effect when it changes, so a
   // refresh while the dialog is open never wipes the user's edits.
@@ -124,6 +128,13 @@ export function BotDialog({
   function setOpen(nextOpen: boolean) {
     setUncontrolledOpen(nextOpen)
     onOpenChange?.(nextOpen)
+  }
+
+  // Stop a user who can't make a bot before they fill one in. Editing
+  // still opens, because the edit dialog is also where a bot is deleted.
+  async function onDialogOpenChange(nextOpen: boolean) {
+    if (nextOpen && !bot && !(await checkBilling("createBot"))) return
+    setOpen(nextOpen)
   }
 
   // Swap the edit dialog for the delete confirmation, and swap back if the
@@ -147,7 +158,8 @@ export function BotDialog({
       : await createBot(values)
 
     if (!result.ok) {
-      form.setError("root", { message: result.error })
+      if (isBillingError(result)) showBillingToast(result)
+      else form.setError("root", { message: result.error })
       return
     }
 
@@ -167,7 +179,7 @@ export function BotDialog({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={onDialogOpenChange}>
         {trigger && <DialogTrigger render={trigger} />}
         <DialogContent className="sm:max-w-md">
           <form

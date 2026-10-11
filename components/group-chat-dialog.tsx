@@ -34,6 +34,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { toast } from "@/components/ui/toast"
+import { useBillingGate, useBillingToast } from "@/components/billing-gate"
+import { isBillingError } from "@/lib/billing"
 
 type GroupChatFormValues = z.input<typeof insertGroupChatSchema>
 
@@ -64,6 +66,8 @@ export function GroupChatDialog({
   onOpenChange,
 }: GroupChatDialogProps) {
   const router = useRouter()
+  const showBillingToast = useBillingToast()
+  const checkBilling = useBillingGate()
   const [uncontrolledOpen, setUncontrolledOpen] = React.useState(false)
   const open = openProp ?? uncontrolledOpen
   const [deleteOpen, setDeleteOpen] = React.useState(false)
@@ -97,6 +101,13 @@ export function GroupChatDialog({
     onOpenChange?.(nextOpen)
   }
 
+  // Stop a user who can't make a group before they fill one in. Editing
+  // still opens, because the edit dialog is also where a group is deleted.
+  async function onDialogOpenChange(nextOpen: boolean) {
+    if (nextOpen && !chat && !(await checkBilling("groupChat"))) return
+    setOpen(nextOpen)
+  }
+
   // Swap the edit dialog for the delete confirmation, and swap back if the
   // user cancels.
   function confirmDelete() {
@@ -118,7 +129,8 @@ export function GroupChatDialog({
       : await createGroupChat(values)
 
     if (!result.ok) {
-      form.setError("root", { message: result.error })
+      if (isBillingError(result)) showBillingToast(result)
+      else form.setError("root", { message: result.error })
       return
     }
 
@@ -139,7 +151,7 @@ export function GroupChatDialog({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={onDialogOpenChange}>
         {trigger && <DialogTrigger render={trigger} />}
         <DialogContent className="sm:max-w-md">
           <form

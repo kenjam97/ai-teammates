@@ -2,7 +2,7 @@
 
 import { UserButton } from "@clerk/nextjs";
 import { formatDistanceToNowStrict } from "date-fns";
-import { BotIcon, PlusIcon, UsersIcon } from "lucide-react";
+import { BotIcon, GaugeIcon, PlusIcon, UsersIcon } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import * as React from "react";
@@ -11,6 +11,7 @@ import { BotDialog } from "@/components/bot-dialog";
 import { ChatSearch } from "@/components/chat-search";
 import { GroupChatAvatar } from "@/components/group-chat-avatar";
 import { GroupChatDialog } from "@/components/group-chat-dialog";
+import { useBillingGate } from "@/components/billing-gate";
 import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
@@ -42,6 +43,7 @@ export function AppSidebar({ chats }: AppSidebarProps) {
 	const [botDialogOpen, setBotDialogOpen] = React.useState(false);
 	const [groupDialogOpen, setGroupDialogOpen] = React.useState(false);
 	const { chatId } = useParams<{ chatId?: string }>();
+	const checkBilling = useBillingGate();
 
 	return (
 		<Sidebar collapsible="icon">
@@ -56,11 +58,19 @@ export function AppSidebar({ chats }: AppSidebarProps) {
 							<PlusIcon />
 						</DropdownMenuTrigger>
 						<DropdownMenuContent align="end" className="w-auto">
-							<DropdownMenuItem onClick={() => setBotDialogOpen(true)}>
+							<DropdownMenuItem
+								onClick={async () => {
+									if (await checkBilling("createBot")) setBotDialogOpen(true);
+								}}
+							>
 								<BotIcon />
 								Create a new bot
 							</DropdownMenuItem>
-							<DropdownMenuItem onClick={() => setGroupDialogOpen(true)}>
+							<DropdownMenuItem
+								onClick={async () => {
+									if (await checkBilling("groupChat")) setGroupDialogOpen(true);
+								}}
+							>
 								<UsersIcon />
 								Create a group chat
 							</DropdownMenuItem>
@@ -146,7 +156,15 @@ export function AppSidebar({ chats }: AppSidebarProps) {
 									userButtonAvatarImage: "rounded-lg!",
 								},
 							}}
-						/>
+						>
+							<UserButton.MenuItems>
+								<UserButton.Link
+									label="Usage"
+									labelIcon={<GaugeIcon className="size-4" />}
+									href="/usage"
+								/>
+							</UserButton.MenuItems>
+						</UserButton>
 					</SidebarMenuItem>
 				</SidebarMenu>
 			</SidebarFooter>

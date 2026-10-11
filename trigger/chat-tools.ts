@@ -5,14 +5,25 @@ import { createSandboxTools } from "./sandbox-tools";
 
 type ChatBot = { id: string; name: string; sandboxId: string };
 
-// Who is answering this turn, and who else is in the chat.
-export type TurnBots = { bot: ChatBot; members: ChatBot[] };
+// Who is answering this turn, who else is in the chat, and why the sandbox
+// can't be used this turn, if it can't (the plan's sandbox time is used up).
+export type TurnBots = {
+  bot: ChatBot;
+  members: ChatBot[];
+  sandboxBlocked: string | null;
+};
 
 // Every tool a bot can have. The set is fixed so message types stay stable;
 // handoff is only switched on in group chats (see activeTools in chat.ts).
 export function createChatTools(getTurnBots: () => Promise<TurnBots>) {
   return {
-    ...createSandboxTools(async () => (await getTurnBots()).bot.sandboxId),
+    // The error reaches the model as the tool's result, so the bot can tell
+    // the person why it can't use its computer.
+    ...createSandboxTools(async () => {
+      const { bot, sandboxBlocked } = await getTurnBots();
+      if (sandboxBlocked) throw new Error(sandboxBlocked);
+      return bot.sandboxId;
+    }),
 
     // Records which bot should answer instead. The bot's turn ends on this
     // call, and the browser then asks the agent for the other bot's turn.

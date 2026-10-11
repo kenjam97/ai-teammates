@@ -9,6 +9,8 @@ import {
 import { z } from "zod";
 
 import type { Bot } from "@/db/schema";
+import { aiCostMicros, CHAT_MODEL } from "@/lib/metering";
+import { getUsage, overLimit, recordUsage } from "@/lib/usage";
 
 import { type ChatUIMessage, createChatTools } from "./chat-tools";
 import { db } from "./db";
@@ -17,7 +19,7 @@ import { db } from "./db";
 async function loadChat(chatId: string) {
   const row = await db.query.chats.findFirst({
     where: (chats, { eq }) => eq(chats.id, chatId),
-    columns: { kind: true, name: true },
+    columns: { kind: true, name: true, userId: true },
     with: {
       members: {
         orderBy: (members, { asc }) => [
@@ -52,7 +54,8 @@ function lastHandoff() {
 // in the composer, else the chat's first bot (a direct chat has only one).
 // The pick comes from the browser, so it only counts when the bot is a member.
 async function loadTurn(chatId: string, pickedBotId?: string) {
-  const { kind, name, members } = await loadChat(chatId);
+  const { kind, name, userId, members } = await loadChat(chatId);
+  const usage = await getUsage(db, userId);
   const handoff = lastHandoff();
   const botId = handoff?.botId ?? pickedBotId;
   const bot = botId
@@ -60,6 +63,13 @@ async function loadTurn(chatId: string, pickedBotId?: string) {
     : members[0];
   if (!bot) throw new Error(`Bot ${botId} is not in chat ${chatId}`);
   return {
+    userId,
+    usage,
+    // Why the bot's tools can't use its sandbox this turn, if they can't.
+    // Tools run on sandbox time, the same limit as the desktop.
+    sandboxBlocked: usage
+      ? overLimit(usage, "desktop")
+      : "Sandboxes are part of the Pro plan.",
     bot,
     members,
     group: kind === "group" ? { name: name ?? "Group chat" } : undefined,
@@ -197,6 +207,12 @@ export const chatAgent = chat
     run: async ({ chatId, clientData, messages, tools, signal, streamText }) => {
       // Load the bot every turn so edits to it apply to the next reply.
       const turn = await loadTurn(chatId, clientData?.botId);
+      // The browser and the session actions check this too, but a session
+      // outlives them, so the agent has the final say every turn.
+      const { usage } = turn;
+      if (!usage) throw new Error("Bots are part of the Pro plan.");
+      const blocked = overLimit(usage, "chat");
+      if (blocked) throw new Error(blocked);
       // Tag the reply with its bot, so a group chat shows who answered.
       chat.setUIMessageStreamOptions({
         messageMetadata: () => ({ botId: turn.bot.id }),
@@ -205,7 +221,7 @@ export const chatAgent = chat
       // bounce a message between them.
       const canHandOff = turn.group && !turn.handoffFrom;
       return streamText({
-        model: google("gemini-3.5-flash-lite"),
+        model: google(CHAT_MODEL),
         system: systemPrompt(turn),
         messages: turn.group ? await groupMessages(turn, tools) : messages,
         tools,
@@ -213,8 +229,39 @@ export const chatAgent = chat
           (name) => canHandOff || name !== "handoff",
         ),
         abortSignal: signal,
-        // Desktop tasks take many small steps. A handoff ends the turn.
-        stopWhen: [stepCountIs(50), hasToolCall("handoff")],
+        // Desktop tasks take many small steps. A handoff ends the turn, and
+        // so does running out of AI allowance.
+        stopWhen: [
+          stepCountIs(50),
+          hasToolCall("handoff"),
+          // Counts this turn's steps too, so a long tool loop stops when the
+          // allowance runs out rather than at the next turn.
+          ({ steps }) =>
+            steps.reduce(
+              (total, step) => total + aiCostMicros(step.usage),
+              usage.aiCostMicros,
+            ) >= usage.period.limits.aiCostMicros,
+        ],
+        // Each step goes in the ledger as soon as it ends, so stopping a
+        // reply part way still counts the steps that ran.
+        onStepEnd: async (step) => {
+          await recordUsage(db, [
+            {
+              userId: turn.userId,
+              kind: "ai",
+              quantity: step.usage.totalTokens ?? 0,
+              costMicros: aiCostMicros(step.usage),
+              details: {
+                model: CHAT_MODEL,
+                chatId,
+                botId: turn.bot.id,
+                inputTokens: step.usage.inputTokens,
+                cachedInputTokens: step.usage.inputTokenDetails.cacheReadTokens,
+                outputTokens: step.usage.outputTokens,
+              },
+            },
+          ]);
+        },
       });
     },
   });

@@ -4,7 +4,7 @@ import { z } from "zod";
 
 // Pass the config explicitly: the SDK refuses to read DAYTONA_API_URL from the
 // environment when it was loaded from .env.local, as `trigger dev` does.
-const daytona = new Daytona({
+export const daytona = new Daytona({
   apiKey: process.env.DAYTONA_API_KEY,
   apiUrl: process.env.DAYTONA_API_URL,
 });
