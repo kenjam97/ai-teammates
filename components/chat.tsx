@@ -6,19 +6,26 @@ import {
 	useLoadTranscript,
 	useTriggerChatTransport,
 } from "@trigger.dev/sdk/chat/react";
-import type { UIMessage } from "ai";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
+import { type BundledLanguage, bundledLanguages } from "shiki";
 
 import {
 	loadTranscript,
 	mintChatAccessToken,
 	startChatSession,
 } from "@/actions/chat";
+import { CodeBlock } from "@/components/ai-elements/code-block";
 import {
 	Conversation,
 	ConversationContent,
 	ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
+import {
+	FileTree,
+	FileTreeFile,
+	FileTreeFolder,
+} from "@/components/ai-elements/file-tree";
+import { Image } from "@/components/ai-elements/image";
 import {
 	Message,
 	MessageContent,
@@ -32,8 +39,17 @@ import {
 	PromptInputSubmit,
 	PromptInputTextarea,
 } from "@/components/ai-elements/prompt-input";
+import { Terminal } from "@/components/ai-elements/terminal";
+import {
+	Tool,
+	ToolContent,
+	ToolHeader,
+	ToolInput,
+	ToolOutput,
+} from "@/components/ai-elements/tool";
 import { Spinner } from "@/components/ui/spinner";
 import type { chatAgent } from "@/trigger/chat";
+import type { ChatUIMessage } from "@/trigger/sandbox-tools";
 
 type ChatProps = {
 	chatId: string;
@@ -62,7 +78,7 @@ export function Chat({ chatId }: ChatProps) {
 		<ChatView
 			chatId={chatId}
 			transport={transport}
-			initialMessages={messages}
+			initialMessages={messages as ChatUIMessage[]}
 		/>
 	);
 }
@@ -70,12 +86,12 @@ export function Chat({ chatId }: ChatProps) {
 type ChatViewProps = {
 	chatId: string;
 	transport: TriggerChatTransport;
-	initialMessages: UIMessage[];
+	initialMessages: ChatUIMessage[];
 };
 
 function ChatView({ chatId, transport, initialMessages }: ChatViewProps) {
 	const [text, setText] = useState("");
-	const { messages, status, sendMessage, stop } = useChat({
+	const { messages, status, sendMessage, stop } = useChat<ChatUIMessage>({
 		id: chatId,
 		messages: initialMessages,
 		transport,
@@ -94,13 +110,9 @@ function ChatView({ chatId, transport, initialMessages }: ChatViewProps) {
 					{messages.map((message) => (
 						<Message from={message.role} key={message.id}>
 							<MessageContent>
-								{message.parts.map((part, i) =>
-									part.type === "text" ? (
-										<MessageResponse key={`${message.id}-${i}`}>
-											{part.text}
-										</MessageResponse>
-									) : null,
-								)}
+								{message.parts.map((part, i) => (
+									<MessagePart key={`${message.id}-${i}`} part={part} />
+								))}
 							</MessageContent>
 						</Message>
 					))}
@@ -126,5 +138,210 @@ function ChatView({ chatId, transport, initialMessages }: ChatViewProps) {
 				</PromptInput>
 			</div>
 		</div>
+	);
+}
+
+type Part = ChatUIMessage["parts"][number];
+type ToolPart = Extract<Part, { type: `tool-${string}` }>;
+
+function MessagePart({ part }: { part: Part }) {
+	switch (part.type) {
+		case "text":
+			return <MessageResponse>{part.text}</MessageResponse>;
+
+		case "tool-bash":
+			return (
+				<ToolCall part={part} title={`Run ${part.input?.command ?? "command"}`}>
+					<Terminal
+						output={`$ ${part.input?.command ?? ""}\n${
+							part.output
+								? `${part.output.output}\n[exit code ${part.output.exitCode}]`
+								: ""
+						}`}
+						isStreaming={part.state === "input-available"}
+					/>
+				</ToolCall>
+			);
+
+		case "tool-readFile":
+			return (
+				<ToolCall part={part} title={`Read ${part.input?.path ?? "file"}`}>
+					{part.output && part.input?.path && (
+						<CodeBlock
+							code={part.output.content}
+							language={languageFor(part.input.path)}
+						/>
+					)}
+				</ToolCall>
+			);
+
+		case "tool-writeFile":
+			return (
+				<ToolCall part={part} title={`Write ${part.input?.path ?? "file"}`}>
+					{part.input?.path && part.input.content !== undefined && (
+						<CodeBlock
+							code={part.input.content}
+							language={languageFor(part.input.path)}
+						/>
+					)}
+				</ToolCall>
+			);
+
+		case "tool-listFiles":
+			return (
+				<ToolCall part={part} title={`List ${part.input?.path ?? "files"}`}>
+					{part.output && (
+						<FileTree>{renderTree(buildTree(part.output.entries))}</FileTree>
+					)}
+				</ToolCall>
+			);
+
+		case "tool-mouseClick":
+			return (
+				<ToolCall
+					part={part}
+					title={`${part.input?.double ? "Double-click" : "Click"} at ${point(part.input)}`}
+				/>
+			);
+
+		case "tool-mouseMove":
+			return <ToolCall part={part} title={`Move mouse to ${point(part.input)}`} />;
+
+		case "tool-mouseDrag":
+			return (
+				<ToolCall
+					part={part}
+					title={`Drag from ${point({ x: part.input?.startX, y: part.input?.startY })} to ${point({ x: part.input?.endX, y: part.input?.endY })}`}
+				/>
+			);
+
+		case "tool-mouseScroll":
+			return (
+				<ToolCall
+					part={part}
+					title={`Scroll ${part.input?.direction ?? ""} at ${point(part.input)}`}
+				/>
+			);
+
+		case "tool-keyboardType":
+			return (
+				<ToolCall part={part} title="Type text">
+					{part.input?.text && (
+						<CodeBlock code={part.input.text} language="log" />
+					)}
+				</ToolCall>
+			);
+
+		case "tool-keyboardPress":
+			return (
+				<ToolCall
+					part={part}
+					title={`Press ${[...(part.input?.modifiers ?? []), part.input?.key ?? ""]
+						.filter(Boolean)
+						.join("+")}`}
+				/>
+			);
+
+		// The bot looks at the screen for itself, so the image isn't shown.
+		case "tool-viewScreen":
+			return (
+				<ToolCall part={part} title="Look at the screen">
+					{null}
+				</ToolCall>
+			);
+
+		case "tool-showScreen":
+			return (
+				<ToolCall part={part} title="Show the screen" defaultOpen>
+					{part.output && (
+						<Image
+							alt="Screenshot of the bot's desktop"
+							base64={part.output.data}
+							mediaType={part.output.mediaType}
+							// Image renders from base64 and ignores the bytes.
+							uint8Array={new Uint8Array()}
+						/>
+					)}
+				</ToolCall>
+			);
+
+		default:
+			return null;
+	}
+}
+
+// A collapsible tool call. Without children it shows the input instead (pass
+// null to show nothing), and it always shows an error when the call failed.
+function ToolCall({
+	part,
+	title,
+	defaultOpen,
+	children,
+}: {
+	part: ToolPart;
+	title: string;
+	defaultOpen?: boolean;
+	children?: ReactNode;
+}) {
+	return (
+		<Tool defaultOpen={defaultOpen}>
+			<ToolHeader title={title} type={part.type} state={part.state} />
+			<ToolContent>
+				{children === undefined ? <ToolInput input={part.input} /> : children}
+				{part.state === "output-error" && (
+					<ToolOutput output={undefined} errorText={part.errorText} />
+				)}
+			</ToolContent>
+		</Tool>
+	);
+}
+
+function point(input?: { x?: number; y?: number }) {
+	return input?.x === undefined || input.y === undefined
+		? "…"
+		: `${input.x}, ${input.y}`;
+}
+
+function languageFor(path: string): BundledLanguage {
+	const extension = path.split(".").pop()?.toLowerCase() ?? "";
+	return extension in bundledLanguages
+		? (extension as BundledLanguage)
+		: "log";
+}
+
+type TreeNode = {
+	name: string;
+	path: string;
+	isDir: boolean;
+	children: TreeNode[];
+};
+
+// Nests a flat listing by path. Sorting puts each folder before its contents.
+function buildTree(entries: { path: string; isDir: boolean }[]) {
+	const nodes = new Map<string, TreeNode>();
+	const roots: TreeNode[] = [];
+	for (const entry of [...entries].sort((a, b) => a.path.localeCompare(b.path))) {
+		const node: TreeNode = {
+			name: entry.path.split("/").pop() || entry.path,
+			path: entry.path,
+			isDir: entry.isDir,
+			children: [],
+		};
+		nodes.set(entry.path, node);
+		const parent = nodes.get(entry.path.slice(0, entry.path.lastIndexOf("/")));
+		(parent ? parent.children : roots).push(node);
+	}
+	return roots;
+}
+
+function renderTree(nodes: TreeNode[]): ReactNode {
+	return nodes.map((node) =>
+		node.isDir ? (
+			<FileTreeFolder key={node.path} path={node.path} name={node.name}>
+				{renderTree(node.children)}
+			</FileTreeFolder>
+		) : (
+			<FileTreeFile key={node.path} path={node.path} name={node.name} />
+		),
 	);
 }
