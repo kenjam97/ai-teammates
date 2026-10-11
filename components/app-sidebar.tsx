@@ -8,8 +8,9 @@ import { useParams } from "next/navigation";
 import * as React from "react";
 
 import { BotDialog } from "@/components/bot-dialog";
-import { ChatAvatar } from "@/components/chat-avatar";
 import { ChatSearch } from "@/components/chat-search";
+import { GroupChatAvatar } from "@/components/group-chat-avatar";
+import { GroupChatDialog } from "@/components/group-chat-dialog";
 import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
@@ -39,6 +40,7 @@ type AppSidebarProps = {
 
 export function AppSidebar({ chats }: AppSidebarProps) {
 	const [botDialogOpen, setBotDialogOpen] = React.useState(false);
+	const [groupDialogOpen, setGroupDialogOpen] = React.useState(false);
 	const { chatId } = useParams<{ chatId?: string }>();
 
 	return (
@@ -58,7 +60,7 @@ export function AppSidebar({ chats }: AppSidebarProps) {
 								<BotIcon />
 								Create a new bot
 							</DropdownMenuItem>
-							<DropdownMenuItem>
+							<DropdownMenuItem onClick={() => setGroupDialogOpen(true)}>
 								<UsersIcon />
 								Create a group chat
 							</DropdownMenuItem>
@@ -66,6 +68,14 @@ export function AppSidebar({ chats }: AppSidebarProps) {
 					</DropdownMenu>
 				</div>
 				<BotDialog open={botDialogOpen} onOpenChange={setBotDialogOpen} />
+				<GroupChatDialog
+					// Every bot has exactly one direct chat.
+					bots={chats.flatMap((chat) =>
+						chat.kind === "direct" ? chat.bots : [],
+					)}
+					open={groupDialogOpen}
+					onOpenChange={setGroupDialogOpen}
+				/>
 				<ChatSearch chats={chats} />
 			</SidebarHeader>
 			<SidebarContent>
@@ -77,7 +87,7 @@ export function AppSidebar({ chats }: AppSidebarProps) {
 									<SidebarMenuButton
 										size="lg"
 										isActive={chat.id === chatId}
-										tooltip={chat.name ?? chat.bot.name}
+										tooltip={chat.name}
 										render={
 											<Link
 												href={`/chats/${chat.id}`}
@@ -86,14 +96,14 @@ export function AppSidebar({ chats }: AppSidebarProps) {
 										}
 										className="group-data-[collapsible=icon]:p-2!"
 									>
-										<ChatAvatar
-											seed={chat.bot.avatar}
+										<GroupChatAvatar
+											seeds={chat.bots.map((bot) => bot.avatar)}
 											className="group-data-[collapsible=icon]:size-4"
 										/>
 										<div className="grid min-w-0 flex-1 leading-tight">
 											<div className="flex items-baseline gap-2">
 												<span className="flex-1 truncate font-medium">
-													{chat.name ?? chat.bot.name}
+													{chat.name}
 												</span>
 												<time
 													dateTime={chat.lastMessagedAt.toISOString()}

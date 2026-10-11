@@ -12,8 +12,8 @@ type GetDesktopUrlResult =
   | { ok: true; url: string }
   | { ok: false; error: string }
 
-// Returns a noVNC URL for the desktop of the chat's bot. Group chats show
-// their first bot, like the chat header.
+// Returns a noVNC URL for the desktop of a direct chat's bot. Group chats have
+// no desktop.
 export async function getDesktopUrl(
   input: unknown,
 ): Promise<GetDesktopUrlResult> {
@@ -31,8 +31,13 @@ export async function getDesktopUrl(
     .from(chats)
     .innerJoin(chatMembers, eq(chatMembers.chatId, chats.id))
     .innerJoin(bots, eq(bots.id, chatMembers.botId))
-    .where(and(eq(chats.id, parsed.data), eq(chats.userId, userId)))
-    .orderBy(chatMembers.joinedAt)
+    .where(
+      and(
+        eq(chats.id, parsed.data),
+        eq(chats.userId, userId),
+        eq(chats.kind, "direct")
+      )
+    )
     .limit(1)
   if (!row) return { ok: false, error: "This chat has no bot." }
 

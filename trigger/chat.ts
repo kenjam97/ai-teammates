@@ -1,20 +1,29 @@
 import { google } from "@ai-sdk/google";
 import { chat } from "@trigger.dev/sdk/ai";
 import { stepCountIs } from "ai";
-import { eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
+import { z } from "zod";
 
 import { bots, chatMembers, type Bot } from "@/db/schema";
 
 import { db } from "./db";
 import { type ChatUIMessage, createSandboxTools } from "./sandbox-tools";
 
-// The bot that answers in this chat. Every chat is a direct chat with one bot.
-async function getChatBot(chatId: string) {
+// The bot that answers this turn: the one picked in the composer, or the
+// chat's first bot when none was picked (a direct chat has only one). The pick
+// comes from the browser, so it only counts when the bot is a member.
+async function getChatBot(chatId: string, botId?: string) {
   const [row] = await db
     .select({ bot: bots })
     .from(chatMembers)
     .innerJoin(bots, eq(bots.id, chatMembers.botId))
-    .where(eq(chatMembers.chatId, chatId))
+    .where(
+      and(
+        eq(chatMembers.chatId, chatId),
+        botId ? eq(chatMembers.botId, botId) : undefined,
+      ),
+    )
+    .orderBy(asc(chatMembers.joinedAt))
     .limit(1);
   if (!row) throw new Error(`No bot found for chat ${chatId}`);
   return row.bot;
@@ -44,24 +53,30 @@ function systemPrompt(bot: Bot) {
 }
 
 // One run per conversation. History is kept in the platform's default
-// transcript storage, keyed by chat id.
-export const chatAgent = chat.withUIMessage<ChatUIMessage>().agent({
-  id: "chat",
-  // Resolved every turn. Declared here, not only on streamText, so the
-  // screenshots' toModelOutput is re-applied to earlier turns.
-  tools: ({ chatId }) =>
-    createSandboxTools(async () => (await getChatBot(chatId)).sandboxId),
-  run: async ({ chatId, messages, tools, signal, streamText }) => {
-    // Load the bot every turn so edits to it apply to the next reply.
-    const bot = await getChatBot(chatId);
-    return streamText({
-      model: google("gemini-3.5-flash-lite"),
-      system: systemPrompt(bot),
-      messages,
-      tools,
-      abortSignal: signal,
-      // Desktop tasks take many small steps.
-      stopWhen: stepCountIs(50),
-    });
-  },
-});
+// transcript storage, keyed by chat id. In a group chat, the bot picked in the
+// composer answers the turn; the transport sends it as client data.
+export const chatAgent = chat
+  .withUIMessage<ChatUIMessage>()
+  .withClientData({ schema: z.object({ botId: z.string().optional() }) })
+  .agent({
+    id: "chat",
+    // Resolved every turn. Declared here, not only on streamText, so the
+    // screenshots' toModelOutput is re-applied to earlier turns.
+    tools: ({ chatId, clientData }) =>
+      createSandboxTools(
+        async () => (await getChatBot(chatId, clientData?.botId)).sandboxId,
+      ),
+    run: async ({ chatId, clientData, messages, tools, signal, streamText }) => {
+      // Load the bot every turn so edits to it apply to the next reply.
+      const bot = await getChatBot(chatId, clientData?.botId);
+      return streamText({
+        model: google("gemini-3.5-flash-lite"),
+        system: systemPrompt(bot),
+        messages,
+        tools,
+        abortSignal: signal,
+        // Desktop tasks take many small steps.
+        stopWhen: stepCountIs(50),
+      });
+    },
+  });

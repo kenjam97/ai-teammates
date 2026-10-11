@@ -19,6 +19,18 @@ export default async function Page({
 	const chat = await getChat(chatId);
 	if (!chat) notFound();
 
+	const bots = chat.members.map((member) => member.bot);
+
+	// Group chats have no desktop: each bot has its own sandbox.
+	if (chat.kind === "group") {
+		return (
+			<div className="flex h-svh flex-col">
+				<ChatHeader chat={chat} />
+				<Chat key={chat.id} chatId={chat.id} bots={bots} />
+			</div>
+		);
+	}
+
 	return (
 		<DesktopPanelProvider
 			key={chat.id}
@@ -33,7 +45,7 @@ export default async function Page({
 					<ResizablePanel id="chat" minSize="30">
 						<div className="flex h-full flex-col">
 							<ChatHeader chat={chat} />
-							<Chat key={chat.id} chatId={chat.id} />
+							<Chat key={chat.id} chatId={chat.id} bots={bots} />
 						</div>
 					</ResizablePanel>
 					<DesktopPanel />

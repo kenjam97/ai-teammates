@@ -70,6 +70,26 @@ export const chats = pgTable(
 export type Chat = typeof chats.$inferSelect
 export type NewChat = typeof chats.$inferInsert
 
+// What a user sets when creating a group chat. Direct chats are created with
+// their bot, so only group chats come from a form.
+export const insertGroupChatSchema = createInsertSchema(chats, {
+  // Required here (unlike the column) because every group chat has a name.
+  name: z.string().trim().min(1, "Give your group a name.").max(50),
+})
+  .omit({
+    id: true,
+    userId: true,
+    kind: true,
+    lastMessagePreview: true,
+    lastMessagedAt: true,
+    createdAt: true,
+  })
+  .extend({
+    botIds: z.array(z.string().min(1)).min(2, "Pick at least two bots."),
+  })
+
+export type InsertGroupChat = z.infer<typeof insertGroupChatSchema>
+
 export const chatMembers = pgTable(
   "chat_members",
   {

@@ -20,7 +20,10 @@ export async function getChat(chatId: string) {
     },
     with: {
       members: {
-        orderBy: (members, { asc }) => [asc(members.joinedAt)],
+        orderBy: (members, { asc }) => [
+          asc(members.joinedAt),
+          asc(members.botId),
+        ],
         with: {
           bot: {
             columns: {

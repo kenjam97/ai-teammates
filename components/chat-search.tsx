@@ -4,7 +4,7 @@ import * as React from "react"
 import { useRouter } from "next/navigation"
 import { SearchIcon } from "lucide-react"
 
-import { ChatAvatar } from "@/components/chat-avatar"
+import { GroupChatAvatar } from "@/components/group-chat-avatar"
 import { Button } from "@/components/ui/button"
 import {
   Command,
@@ -73,11 +73,14 @@ export function ChatSearch({ chats }: ChatSearchProps) {
                 <CommandItem
                   key={chat.id}
                   value={chat.id}
-                  keywords={[chat.name ?? chat.bot.name]}
+                  keywords={[chat.name]}
                   onSelect={() => openChat(chat.id)}
                 >
-                  <ChatAvatar seed={chat.bot.avatar} className="size-6" />
-                  <span className="truncate">{chat.name ?? chat.bot.name}</span>
+                  <GroupChatAvatar
+                    seeds={chat.bots.map((bot) => bot.avatar)}
+                    className="size-6"
+                  />
+                  <span className="truncate">{chat.name}</span>
                 </CommandItem>
               ))}
             </CommandGroup>
