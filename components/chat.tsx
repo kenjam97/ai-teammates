@@ -6,7 +6,13 @@ import {
 	useLoadTranscript,
 	useTriggerChatTransport,
 } from "@trigger.dev/sdk/chat/react";
-import { type ReactNode, useState } from "react";
+import {
+	type KeyboardEvent,
+	type ReactNode,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { type BundledLanguage, bundledLanguages } from "shiki";
 
 import {
@@ -36,6 +42,9 @@ import {
 	PromptInputBody,
 	PromptInputFooter,
 	type PromptInputMessage,
+	PromptInputCommand,
+	PromptInputCommandItem,
+	PromptInputCommandList,
 	PromptInputSelect,
 	PromptInputSelectContent,
 	PromptInputSelectItem,
@@ -54,10 +63,11 @@ import {
 	ToolOutput,
 } from "@/components/ai-elements/tool";
 import { ChatAvatar } from "@/components/chat-avatar";
+import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import type { Bot } from "@/db/schema";
 import type { chatAgent } from "@/trigger/chat";
-import type { ChatUIMessage } from "@/trigger/sandbox-tools";
+import type { ChatUIMessage } from "@/trigger/chat-tools";
 
 type ChatBot = Pick<Bot, "id" | "name" | "avatar">;
 
@@ -121,47 +131,204 @@ function ChatView({
 	onBotChange,
 }: ChatViewProps) {
 	const [text, setText] = useState("");
+	const [mention, setMention] = useState<Mention | null>(null);
+	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const isGroup = bots.length > 1;
 	const { messages, status, sendMessage, stop } = useChat<ChatUIMessage>({
 		id: chatId,
 		messages: initialMessages,
 		transport,
 	});
 
+	// Replies already handled, so a handoff is followed once and never again
+	// on reload.
+	const handledRef = useRef(new Set(initialMessages.map((m) => m.id)));
+
+	// When a reply hands off to another bot, ask the agent for that bot's turn
+	// and pick it for what comes next.
+	useEffect(() => {
+		if (status !== "ready") return;
+		const last = messages.at(-1);
+		if (last?.role !== "assistant" || handledRef.current.has(last.id)) return;
+		handledRef.current.add(last.id);
+		const handoff = last.parts.findLast(
+			(part) => part.type === "tool-handoff" && part.state === "output-available",
+		);
+		if (handoff?.type !== "tool-handoff" || !handoff.output) return;
+		onBotChange(handoff.output.botId);
+		sendMessage(undefined, { body: { action: { type: "handoff" } } });
+	}, [status, messages, onBotChange, sendMessage]);
+
+	const mentionMatches = mention
+		? bots.filter((bot) =>
+				bot.name.toLowerCase().startsWith(mention.query.toLowerCase()),
+			)
+		: [];
+	// Falls back to the first match when the highlighted bot is filtered out.
+	const highlightedId = mentionMatches.some(
+		(bot) => bot.id === mention?.highlighted,
+	)
+		? mention?.highlighted
+		: mentionMatches[0]?.id;
+
+	// Opens the mention menu while the caret is right after an @word.
+	function updateMention(value: string, caret: number) {
+		const match = /(?:^|\s)@([^\s@]*)$/.exec(value.slice(0, caret));
+		setMention(
+			isGroup && match
+				? {
+						query: match[1],
+						start: caret - match[1].length - 1,
+						end: caret,
+						highlighted: mention?.highlighted ?? "",
+					}
+				: null,
+		);
+	}
+
+	// Writes the bot's name in place of the @word and picks the bot, just like
+	// the select.
+	function pickMention(bot: ChatBot) {
+		if (!mention) return;
+		const inserted = `@${bot.name} `;
+		setText(text.slice(0, mention.start) + inserted + text.slice(mention.end));
+		setMention(null);
+		onBotChange(bot.id);
+		const caret = mention.start + inserted.length;
+		requestAnimationFrame(() => {
+			textareaRef.current?.focus();
+			textareaRef.current?.setSelectionRange(caret, caret);
+		});
+	}
+
+	function handleMentionKeys(e: KeyboardEvent<HTMLTextAreaElement>) {
+		if (!mention || mentionMatches.length === 0) return;
+		const index = mentionMatches.findIndex((bot) => bot.id === highlightedId);
+		if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+			e.preventDefault();
+			const step = e.key === "ArrowDown" ? 1 : -1;
+			const next =
+				mentionMatches[(index + step + mentionMatches.length) % mentionMatches.length];
+			setMention({ ...mention, highlighted: next.id });
+		} else if (e.key === "Enter" || e.key === "Tab") {
+			e.preventDefault();
+			pickMention(mentionMatches[index]);
+		} else if (e.key === "Escape") {
+			e.preventDefault();
+			setMention(null);
+		}
+	}
+
 	function handleSubmit(message: PromptInputMessage) {
 		if (!message.text.trim()) return;
-		sendMessage({ text: message.text });
+		// A bot @mentioned in the message answers it, even when its name was
+		// typed out rather than picked from the menu.
+		const mentioned = isGroup ? lastMentionedBot(message.text, bots) : undefined;
+		if (mentioned) onBotChange(mentioned.id);
+		const chosenBotId = mentioned?.id ?? botId;
+		// Saved on the message so it shows who it was for, and sent as client
+		// data too: the transport's only catches up with the pick next render.
+		sendMessage(
+			{ text: message.text, metadata: { botId: chosenBotId } },
+			{ metadata: { botId: chosenBotId } },
+		);
 		setText("");
+		setMention(null);
 	}
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
 			<Conversation>
 				<ConversationContent>
-					{messages.map((message) => (
-						<Message from={message.role} key={message.id}>
-							<MessageContent>
-								{message.parts.map((part, i) => (
-									<MessagePart key={`${message.id}-${i}`} part={part} />
-								))}
-							</MessageContent>
-						</Message>
-					))}
+					{messages.map((message) => {
+						// Group chats show which bot wrote each reply, and which bot
+						// each of the person's messages was for.
+						const bot = isGroup
+							? bots.find((bot) => bot.id === message.metadata?.botId)
+							: undefined;
+						const isReply = message.role === "assistant";
+						return (
+							<Message
+								from={message.role}
+								key={message.id}
+								className={
+									bot && isReply ? "flex-row items-start gap-3" : undefined
+								}
+							>
+								{bot && isReply && (
+									<ChatAvatar seed={bot.avatar} className="size-6" />
+								)}
+								<MessageContent>
+									{message.parts.map((part, i) => (
+										<MessagePart key={`${message.id}-${i}`} part={part} />
+									))}
+								</MessageContent>
+								{bot && !isReply && (
+									<Badge variant="secondary" className="ml-auto gap-1.5">
+										<ChatAvatar seed={bot.avatar} className="size-3.5" />
+										To {bot.name}
+									</Badge>
+								)}
+							</Message>
+						);
+					})}
 				</ConversationContent>
 				<ConversationScrollButton />
 			</Conversation>
 
-			<div className="p-4 pt-0">
+			<div className="relative p-4 pt-0">
+				{mention && mentionMatches.length > 0 && (
+					<PromptInputCommand
+						shouldFilter={false}
+						value={highlightedId}
+						onValueChange={(highlighted) =>
+							setMention({ ...mention, highlighted })
+						}
+						className="absolute bottom-full left-4 z-10 mb-2 size-auto w-64 border shadow-md"
+					>
+						<PromptInputCommandList>
+							{mentionMatches.map((bot) => (
+								<PromptInputCommandItem
+									key={bot.id}
+									value={bot.id}
+									onSelect={() => pickMention(bot)}
+									// Keep focus in the textarea.
+									onMouseDown={(e) => e.preventDefault()}
+								>
+									<BotOption bot={bot} />
+								</PromptInputCommandItem>
+							))}
+						</PromptInputCommandList>
+					</PromptInputCommand>
+				)}
 				<PromptInput onSubmit={handleSubmit}>
 					<PromptInputBody>
 						<PromptInputTextarea
+							ref={textareaRef}
 							value={text}
-							onChange={(e) => setText(e.target.value)}
+							placeholder={
+								isGroup
+									? "Message the group, or @mention a bot"
+									: undefined
+							}
+							onChange={(e) => {
+								setText(e.target.value);
+								updateMention(e.target.value, e.target.selectionStart);
+							}}
+							onSelect={(e) =>
+								updateMention(
+									e.currentTarget.value,
+									e.currentTarget.selectionStart,
+								)
+							}
+							onKeyDown={handleMentionKeys}
+							onBlur={() => setMention(null)}
 						/>
 					</PromptInputBody>
 					<PromptInputFooter
-						className={bots.length > 1 ? undefined : "justify-end"}
+						className={isGroup ? undefined : "justify-end"}
 					>
-						{bots.length > 1 && (
+						{isGroup && (
 							<PromptInputTools>
 								<BotSelect bots={bots} botId={botId} onBotChange={onBotChange} />
 							</PromptInputTools>
@@ -212,6 +379,31 @@ function BotSelect({
 			</PromptInputSelectContent>
 		</PromptInputSelect>
 	);
+}
+
+// An @word being typed in the composer, and the bot highlighted in its menu.
+type Mention = {
+	query: string;
+	start: number;
+	end: number;
+	highlighted: string;
+};
+
+// The bot whose @name appears last in the text. Longer names are tried first
+// so "@Ada Lovelace" isn't read as "@Ada".
+function lastMentionedBot(text: string, bots: ChatBot[]) {
+	const lower = text.toLowerCase();
+	let found: { bot: ChatBot; index: number } | undefined;
+	for (const bot of [...bots].sort((a, b) => b.name.length - a.name.length)) {
+		const pattern = new RegExp(
+			`(?:^|\\s)@${bot.name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w])`,
+			"g",
+		);
+		for (const match of lower.matchAll(pattern)) {
+			if (!found || match.index > found.index) found = { bot, index: match.index };
+		}
+	}
+	return found?.bot;
 }
 
 function BotOption({ bot }: { bot: ChatBot }) {
@@ -347,13 +539,28 @@ function MessagePart({ part }: { part: Part }) {
 				</ToolCall>
 			);
 
+		case "tool-handoff":
+			return (
+				<ToolCall
+					part={part}
+					title={`Hand off to ${part.output?.botName ?? "another bot"}`}
+				>
+					{part.input?.reason && (
+						<p className="p-4 text-sm text-muted-foreground">
+							{part.input.reason}
+						</p>
+					)}
+				</ToolCall>
+			);
+
 		default:
 			return null;
 	}
 }
 
-// A collapsible tool call. Without children it shows the input instead (pass
-// null to show nothing), and it always shows an error when the call failed.
+// A tool call, collapsed unless defaultOpen. Without children it shows the
+// input instead (pass null to show nothing), and it always shows an error when
+// the call failed.
 function ToolCall({
 	part,
 	title,

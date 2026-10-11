@@ -1,5 +1,4 @@
 import { Daytona, type Sandbox } from "@daytona/sdk";
-import type { InferChatUIMessageFromTools } from "@trigger.dev/sdk/ai";
 import { tool } from "ai";
 import { z } from "zod";
 
@@ -277,5 +276,3 @@ export function createSandboxTools(getSandboxId: () => Promise<string>) {
 }
 
 export type SandboxTools = ReturnType<typeof createSandboxTools>;
-
-export type ChatUIMessage = InferChatUIMessageFromTools<SandboxTools>;
