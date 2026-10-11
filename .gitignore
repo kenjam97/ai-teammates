@@ -41,3 +41,5 @@ next-env.d.ts
 
 # claude code personal settings
 .claude/settings.local.json
+
+.trigger
