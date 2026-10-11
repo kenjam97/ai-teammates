@@ -92,10 +92,33 @@ function systemPrompt({ bot, members, group, handoffFrom }: Turn) {
       "Call viewScreen before acting on the screen and again afterwards to check the result, because you can't see it otherwise.",
       "Call showScreen only when the person asks to see the screen; viewScreen is for your own looking.",
     ].join(" "),
+    memoryPrompt(),
     "Be honest about what you have and haven't done. Never claim to have taken an action or seen a result that didn't happen in this conversation.",
   ]
     .filter(Boolean)
     .join("\n\n");
+}
+
+// Where the memory file lives in every bot's sandbox. createBotSandbox creates
+// it empty.
+const MEMORY_PATH = "/home/daytona/MEMORY.md";
+
+// Each chat only sees its own history, so the memory file is how a bot carries
+// what it learned in its direct chat into group chats, and back.
+function memoryPrompt() {
+  const today = new Date().toISOString().slice(0, 10);
+  return [
+    `Your memory is the file ${MEMORY_PATH} in your sandbox. You talk with the person in a private direct chat and may also be in group chats with other bots. Each conversation only shows you its own messages, so that file is the only way to remember anything from one conversation in another.`,
+    [
+      "Save to it whenever you learn something worth knowing later: facts about the person and their work, their preferences, decisions, commitments and follow-ups, where you put things in your sandbox, and anything they ask you to remember.",
+      "Save it in the same turn you learn it, before you reply, without being asked. Read the file first, then write it back whole with the new note added, because writeFile replaces the file.",
+      `Keep it short, organised Markdown with headings and bullets. Note where and when you learned each thing, like (direct chat, ${today}). Today is ${today}. Update or remove notes that change or turn out wrong instead of piling up contradictions.`,
+    ].join(" "),
+    [
+      "Read it before you answer whenever earlier conversations might matter: when the person refers to something they told you, asks what you know or remember, or asks about anything you haven't seen in this chat, and at the start of a new conversation.",
+      "Never say you don't know or don't remember something until you've checked it. If the file is missing, create it.",
+    ].join(" "),
+  ].join("\n\n");
 }
 
 function groupPrompt(name: string, others: Bot[], handoffFrom?: Bot) {

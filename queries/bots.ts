@@ -44,3 +44,15 @@ export async function getChats() {
 }
 
 export type ChatListItem = Awaited<ReturnType<typeof getChats>>[number]
+
+// The signed-in user's bots, oldest first.
+export async function getBots() {
+  const { isAuthenticated, userId } = await auth()
+  if (!isAuthenticated) return []
+
+  return db.query.bots.findMany({
+    where: (bots, { eq }) => eq(bots.userId, userId),
+    orderBy: (bots, { asc }) => [asc(bots.createdAt), asc(bots.id)],
+    columns: { id: true, name: true, avatar: true },
+  })
+}

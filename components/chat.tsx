@@ -78,7 +78,11 @@ type ChatProps = {
 };
 
 export function Chat({ chatId, bots }: ChatProps) {
-	const [botId, setBotId] = useState(bots[0]?.id);
+	const [pickedBotId, setBotId] = useState(bots[0]?.id);
+	// Fall back to the first bot when the picked one is removed from the group.
+	const botId = bots.some((bot) => bot.id === pickedBotId)
+		? pickedBotId
+		: bots[0]?.id;
 	// The transport reads clientData live and sends it with every turn, so the
 	// agent answers as whichever bot is picked when the message goes out.
 	const transport = useTriggerChatTransport<typeof chatAgent>({
@@ -152,7 +156,8 @@ function ChatView({
 		if (last?.role !== "assistant" || handledRef.current.has(last.id)) return;
 		handledRef.current.add(last.id);
 		const handoff = last.parts.findLast(
-			(part) => part.type === "tool-handoff" && part.state === "output-available",
+			(part) =>
+				part.type === "tool-handoff" && part.state === "output-available"
 		);
 		if (handoff?.type !== "tool-handoff" || !handoff.output) return;
 		onBotChange(handoff.output.botId);
@@ -161,12 +166,12 @@ function ChatView({
 
 	const mentionMatches = mention
 		? bots.filter((bot) =>
-				bot.name.toLowerCase().startsWith(mention.query.toLowerCase()),
+				bot.name.toLowerCase().startsWith(mention.query.toLowerCase())
 			)
 		: [];
 	// Falls back to the first match when the highlighted bot is filtered out.
 	const highlightedId = mentionMatches.some(
-		(bot) => bot.id === mention?.highlighted,
+		(bot) => bot.id === mention?.highlighted
 	)
 		? mention?.highlighted
 		: mentionMatches[0]?.id;
@@ -182,7 +187,7 @@ function ChatView({
 						end: caret,
 						highlighted: mention?.highlighted ?? "",
 					}
-				: null,
+				: null
 		);
 	}
 
@@ -208,7 +213,9 @@ function ChatView({
 			e.preventDefault();
 			const step = e.key === "ArrowDown" ? 1 : -1;
 			const next =
-				mentionMatches[(index + step + mentionMatches.length) % mentionMatches.length];
+				mentionMatches[
+					(index + step + mentionMatches.length) % mentionMatches.length
+				];
 			setMention({ ...mention, highlighted: next.id });
 		} else if (e.key === "Enter" || e.key === "Tab") {
 			e.preventDefault();
@@ -223,14 +230,16 @@ function ChatView({
 		if (!message.text.trim()) return;
 		// A bot @mentioned in the message answers it, even when its name was
 		// typed out rather than picked from the menu.
-		const mentioned = isGroup ? lastMentionedBot(message.text, bots) : undefined;
+		const mentioned = isGroup
+			? lastMentionedBot(message.text, bots)
+			: undefined;
 		if (mentioned) onBotChange(mentioned.id);
 		const chosenBotId = mentioned?.id ?? botId;
 		// Saved on the message so it shows who it was for, and sent as client
 		// data too: the transport's only catches up with the pick next render.
 		sendMessage(
 			{ text: message.text, metadata: { botId: chosenBotId } },
-			{ metadata: { botId: chosenBotId } },
+			{ metadata: { botId: chosenBotId } }
 		);
 		setText("");
 		setMention(null);
@@ -307,9 +316,7 @@ function ChatView({
 							ref={textareaRef}
 							value={text}
 							placeholder={
-								isGroup
-									? "Message the group, or @mention a bot"
-									: undefined
+								isGroup ? "Message the group, or @mention a bot" : undefined
 							}
 							onChange={(e) => {
 								setText(e.target.value);
@@ -318,19 +325,21 @@ function ChatView({
 							onSelect={(e) =>
 								updateMention(
 									e.currentTarget.value,
-									e.currentTarget.selectionStart,
+									e.currentTarget.selectionStart
 								)
 							}
 							onKeyDown={handleMentionKeys}
 							onBlur={() => setMention(null)}
 						/>
 					</PromptInputBody>
-					<PromptInputFooter
-						className={isGroup ? undefined : "justify-end"}
-					>
+					<PromptInputFooter className={isGroup ? undefined : "justify-end"}>
 						{isGroup && (
 							<PromptInputTools>
-								<BotSelect bots={bots} botId={botId} onBotChange={onBotChange} />
+								<BotSelect
+									bots={bots}
+									botId={botId}
+									onBotChange={onBotChange}
+								/>
 							</PromptInputTools>
 						)}
 						<PromptInputSubmit
@@ -397,10 +406,11 @@ function lastMentionedBot(text: string, bots: ChatBot[]) {
 	for (const bot of [...bots].sort((a, b) => b.name.length - a.name.length)) {
 		const pattern = new RegExp(
 			`(?:^|\\s)@${bot.name.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w])`,
-			"g",
+			"g"
 		);
 		for (const match of lower.matchAll(pattern)) {
-			if (!found || match.index > found.index) found = { bot, index: match.index };
+			if (!found || match.index > found.index)
+				found = { bot, index: match.index };
 		}
 	}
 	return found?.bot;
@@ -425,13 +435,19 @@ function MessagePart({ part }: { part: Part }) {
 
 		case "tool-bash":
 			return (
-				<ToolCall part={part} title={`Run ${part.input?.command ?? "command"}`}>
+				<ToolCall
+					part={part}
+					title={["Running a command", "Ran a command"]}
+					detail={part.input?.command}
+				>
 					<Terminal
-						output={`$ ${part.input?.command ?? ""}\n${
-							part.output
-								? `${part.output.output}\n[exit code ${part.output.exitCode}]`
-								: ""
-						}`}
+						output={`$ ${part.input?.command ?? ""}
+${
+	part.output
+		? `${part.output.output}
+[exit code ${part.output.exitCode}]`
+		: ""
+}`}
 						isStreaming={part.state === "input-available"}
 					/>
 				</ToolCall>
@@ -439,31 +455,65 @@ function MessagePart({ part }: { part: Part }) {
 
 		case "tool-readFile":
 			return (
-				<ToolCall part={part} title={`Read ${part.input?.path ?? "file"}`}>
-					{part.output && part.input?.path && (
-						<CodeBlock
-							code={part.output.content}
-							language={languageFor(part.input.path)}
-						/>
-					)}
+				<ToolCall
+					part={part}
+					title={
+						isMemory(part.input?.path)
+							? ["Checking memory", "Checked memory"]
+							: [
+									`Reading ${fileName(part.input?.path)}`,
+									`Read ${fileName(part.input?.path)}`,
+								]
+					}
+					detail={part.input?.path && `Read ${part.input.path}`}
+				>
+					{part.output &&
+						part.input?.path &&
+						(part.output.content.trim() ? (
+							<CodeBlock
+								code={part.output.content}
+								language={languageFor(part.input.path)}
+							/>
+						) : (
+							<EmptyNote>The file is empty.</EmptyNote>
+						))}
 				</ToolCall>
 			);
 
 		case "tool-writeFile":
 			return (
-				<ToolCall part={part} title={`Write ${part.input?.path ?? "file"}`}>
-					{part.input?.path && part.input.content !== undefined && (
-						<CodeBlock
-							code={part.input.content}
-							language={languageFor(part.input.path)}
-						/>
-					)}
+				<ToolCall
+					part={part}
+					title={
+						isMemory(part.input?.path)
+							? ["Updating memory", "Updated memory"]
+							: [
+									`Saving ${fileName(part.input?.path)}`,
+									`Saved ${fileName(part.input?.path)}`,
+								]
+					}
+					detail={part.input?.path && `Write ${part.input.path}`}
+				>
+					{part.input?.path &&
+						part.input.content !== undefined &&
+						(part.input.content.trim() ? (
+							<CodeBlock
+								code={part.input.content}
+								language={languageFor(part.input.path)}
+							/>
+						) : (
+							<EmptyNote>The file was left empty.</EmptyNote>
+						))}
 				</ToolCall>
 			);
 
 		case "tool-listFiles":
 			return (
-				<ToolCall part={part} title={`List ${part.input?.path ?? "files"}`}>
+				<ToolCall
+					part={part}
+					title={["Looking through files", "Looked through files"]}
+					detail={`List ${part.input?.path ?? "/home/daytona"}`}
+				>
 					{part.output && (
 						<FileTree>{renderTree(buildTree(part.output.entries))}</FileTree>
 					)}
@@ -474,59 +524,95 @@ function MessagePart({ part }: { part: Part }) {
 			return (
 				<ToolCall
 					part={part}
-					title={`${part.input?.double ? "Double-click" : "Click"} at ${point(part.input)}`}
-				/>
+					title={
+						part.input?.double
+							? ["Double-clicking", "Double-clicked"]
+							: ["Clicking", "Clicked"]
+					}
+					detail={`${part.input?.double ? "Double-click" : "Click"} at ${point(part.input)}`}
+				>
+					{null}
+				</ToolCall>
 			);
 
 		case "tool-mouseMove":
-			return <ToolCall part={part} title={`Move mouse to ${point(part.input)}`} />;
+			return (
+				<ToolCall
+					part={part}
+					title={["Moving the mouse", "Moved the mouse"]}
+					detail={`Move mouse to ${point(part.input)}`}
+				>
+					{null}
+				</ToolCall>
+			);
 
 		case "tool-mouseDrag":
 			return (
 				<ToolCall
 					part={part}
-					title={`Drag from ${point({ x: part.input?.startX, y: part.input?.startY })} to ${point({ x: part.input?.endX, y: part.input?.endY })}`}
-				/>
+					title={["Dragging", "Dragged"]}
+					detail={`Drag from ${point({ x: part.input?.startX, y: part.input?.startY })} to ${point({ x: part.input?.endX, y: part.input?.endY })}`}
+				>
+					{null}
+				</ToolCall>
 			);
 
 		case "tool-mouseScroll":
 			return (
 				<ToolCall
 					part={part}
-					title={`Scroll ${part.input?.direction ?? ""} at ${point(part.input)}`}
-				/>
+					title={[
+						`Scrolling ${part.input?.direction ?? ""}`.trim(),
+						`Scrolled ${part.input?.direction ?? ""}`.trim(),
+					]}
+					detail={`Scroll ${part.input?.direction ?? ""} at ${point(part.input)}`}
+				>
+					{null}
+				</ToolCall>
 			);
 
 		case "tool-keyboardType":
 			return (
-				<ToolCall part={part} title="Type text">
+				<ToolCall part={part} title={["Typing", "Typed some text"]}>
 					{part.input?.text && (
 						<CodeBlock code={part.input.text} language="log" />
 					)}
 				</ToolCall>
 			);
 
-		case "tool-keyboardPress":
+		case "tool-keyboardPress": {
+			const keys = [...(part.input?.modifiers ?? []), part.input?.key ?? ""]
+				.filter(Boolean)
+				.join("+");
 			return (
 				<ToolCall
 					part={part}
-					title={`Press ${[...(part.input?.modifiers ?? []), part.input?.key ?? ""]
-						.filter(Boolean)
-						.join("+")}`}
-				/>
+					title={["Pressing a key", "Pressed a key"]}
+					detail={`Press ${keys}`}
+				>
+					{null}
+				</ToolCall>
 			);
+		}
 
 		// The bot looks at the screen for itself, so the image isn't shown.
 		case "tool-viewScreen":
 			return (
-				<ToolCall part={part} title="Look at the screen">
+				<ToolCall
+					part={part}
+					title={["Looking at the screen", "Looked at the screen"]}
+				>
 					{null}
 				</ToolCall>
 			);
 
 		case "tool-showScreen":
 			return (
-				<ToolCall part={part} title="Show the screen" defaultOpen>
+				<ToolCall
+					part={part}
+					title={["Taking a screenshot", "Shared a screenshot"]}
+					defaultOpen
+				>
 					{part.output && (
 						<Image
 							alt="Screenshot of the bot's desktop"
@@ -539,43 +625,55 @@ function MessagePart({ part }: { part: Part }) {
 				</ToolCall>
 			);
 
-		case "tool-handoff":
+		case "tool-handoff": {
+			const botName = part.output?.botName ?? "another bot";
 			return (
 				<ToolCall
 					part={part}
-					title={`Hand off to ${part.output?.botName ?? "another bot"}`}
+					title={[`Handing off to ${botName}`, `Handed off to ${botName}`]}
 				>
 					{part.input?.reason && (
-						<p className="p-4 text-sm text-muted-foreground">
-							{part.input.reason}
-						</p>
+						<p className="text-sm text-muted-foreground">{part.input.reason}</p>
 					)}
 				</ToolCall>
 			);
+		}
 
 		default:
 			return null;
 	}
 }
 
-// A tool call, collapsed unless defaultOpen. Without children it shows the
-// input instead (pass null to show nothing), and it always shows an error when
-// the call failed.
+// A tool call, collapsed unless defaultOpen. The title is plain language,
+// [while running, once done]; the technical detail (the command or path) sits
+// inside. Without children it shows the input instead (pass null to show
+// nothing), and it always shows an error when the call failed.
 function ToolCall({
 	part,
-	title,
+	title: [doing, done],
+	detail,
 	defaultOpen,
 	children,
 }: {
 	part: ToolPart;
-	title: string;
+	title: [doing: string, done: string];
+	detail?: string;
 	defaultOpen?: boolean;
 	children?: ReactNode;
 }) {
 	return (
 		<Tool defaultOpen={defaultOpen}>
-			<ToolHeader title={title} type={part.type} state={part.state} />
+			<ToolHeader
+				title={part.state === "output-available" ? done : doing}
+				type={part.type}
+				state={part.state}
+			/>
 			<ToolContent>
+				{detail && (
+					<p className="font-mono text-xs break-all text-muted-foreground">
+						{detail}
+					</p>
+				)}
 				{children === undefined ? <ToolInput input={part.input} /> : children}
 				{part.state === "output-error" && (
 					<ToolOutput output={undefined} errorText={part.errorText} />
@@ -583,6 +681,19 @@ function ToolCall({
 			</ToolContent>
 		</Tool>
 	);
+}
+
+function EmptyNote({ children }: { children: ReactNode }) {
+	return <p className="text-sm text-muted-foreground">{children}</p>;
+}
+
+// Bots keep their memory in this file in their sandbox (see trigger/chat.ts).
+function isMemory(path?: string) {
+	return path === "/home/daytona/MEMORY.md" || path === "MEMORY.md";
+}
+
+function fileName(path?: string) {
+	return path?.split("/").filter(Boolean).pop() ?? "a file";
 }
 
 function point(input?: { x?: number; y?: number }) {
@@ -593,9 +704,7 @@ function point(input?: { x?: number; y?: number }) {
 
 function languageFor(path: string): BundledLanguage {
 	const extension = path.split(".").pop()?.toLowerCase() ?? "";
-	return extension in bundledLanguages
-		? (extension as BundledLanguage)
-		: "log";
+	return extension in bundledLanguages ? (extension as BundledLanguage) : "log";
 }
 
 type TreeNode = {
@@ -609,7 +718,9 @@ type TreeNode = {
 function buildTree(entries: { path: string; isDir: boolean }[]) {
 	const nodes = new Map<string, TreeNode>();
 	const roots: TreeNode[] = [];
-	for (const entry of [...entries].sort((a, b) => a.path.localeCompare(b.path))) {
+	for (const entry of [...entries].sort((a, b) =>
+		a.path.localeCompare(b.path)
+	)) {
 		const node: TreeNode = {
 			name: entry.path.split("/").pop() || entry.path,
 			path: entry.path,
@@ -631,6 +742,6 @@ function renderTree(nodes: TreeNode[]): ReactNode {
 			</FileTreeFolder>
 		) : (
 			<FileTreeFile key={node.path} path={node.path} name={node.name} />
-		),
+		)
 	);
 }

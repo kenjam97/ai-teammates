@@ -8,6 +8,7 @@ import {
 	DesktopPanelProvider,
 } from "@/components/desktop-panel";
 import { ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import { getBots } from "@/queries/bots";
 import { getChat } from "@/queries/chats";
 
 export default async function Page({
@@ -23,9 +24,11 @@ export default async function Page({
 
 	// Group chats have no desktop: each bot has its own sandbox.
 	if (chat.kind === "group") {
+		const userBots = await getBots();
+
 		return (
 			<div className="flex h-svh flex-col">
-				<ChatHeader chat={chat} />
+				<ChatHeader chat={chat} bots={userBots} />
 				<Chat key={chat.id} chatId={chat.id} bots={bots} />
 			</div>
 		);
