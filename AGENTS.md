@@ -19,6 +19,11 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Never use migrations: do not run `drizzle-kit generate` or `drizzle-kit migrate`, and do not create migration files or a migrations folder.
 - This is a development project. There is no backwards compatibility and the data is worthless. Prefer data loss: never backfill, migrate, or preserve existing rows, and never spend effort on keeping old data working. Every schema change means a clean slate.
 
+## Deployment (Railway)
+
+- The app deploys to Railway: project `ai-teammates`, service `ai-teammates`, environment `production`. Env vars on the service come from `.env.local`.
+- Never set, overwrite or sync `TRIGGER_SECRET_KEY` on Railway. Production uses a different Trigger.dev key (the prod environment's) than `.env.local` (the dev environment's), and the user manages that value on Railway by hand. Skip it whenever you push env vars from `.env.local`.
+
 ## Forms
 
 Reference implementation: `db/schema.ts` (`insertBotSchema`), `actions/bot.ts` (`createBot`), `components/bot-dialog.tsx` (`BotDialog`).
